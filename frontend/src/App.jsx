@@ -210,7 +210,7 @@ export default function App() {
           <div><strong>CipherWatch</strong><small>Federated intelligence</small></div>
         </div>
         <div className="cw-side-label">Workspace</div>
-        <nav>{navItems.map(({ label, icon: Icon, active }) => (
+        <nav>{navItems.map(({ label, icon: Icon, target }) => (
           <button key={label} className={`cw-nav-item ${label === "Dashboard" ? "active" : ""}`} onClick={() => scrollToSection(target)}><Icon size={17} />{label}</button>
         ))}</nav>
         <div className="cw-sidebar-bottom">
