@@ -88,6 +88,7 @@ export default function App() {
   const [selectedWallet, setSelectedWallet] = useState(null);
   const [apiError, setApiError] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [simulationState, setSimulationState] = useState("idle");
   const isMountedRef = useRef(true);
 
   const fetchDashboardData = useCallback(async () => {
@@ -105,9 +106,11 @@ export default function App() {
         setStatus(statusRes);
         const r = statusRes.round ?? 0;
         const total = statusRes.total_rounds || 20;
-        if (r > 0 && r < total) setIsRunning(true);
-        else if (r >= total) setIsRunning(false);
-        else if (statusRes.live) setIsRunning(true);
+        const nextState = statusRes.simulation_state || (
+          statusRes.live ? "running" : r > 0 ? "completed" : "idle"
+        );
+        setSimulationState(nextState);
+        setIsRunning(nextState === "running");
       }
       if (accRes && Array.isArray(accRes.rounds)) setAccuracyHistory(accRes);
       if (instRes && typeof instRes === "object") setInstitutions(instRes);
@@ -133,6 +136,7 @@ export default function App() {
     if (e) e.preventDefault();
     try {
       setIsRunning(true);
+      setSimulationState("running");
       setApiError(false);
       setStatus({
         round: 0, total_rounds: 20, global_accuracy: null, accuracy_delta: 0,
@@ -141,14 +145,16 @@ export default function App() {
       });
       setAccuracyHistory({ rounds: [], accuracy: [] });
       setAuditLog([]);
-      await fetch(`${API_BASE}/demo/start`, {
+      setHeroCluster(null);
+      setInstitutions({});
+      const response = await fetch(`${API_BASE}/demo/start?n_rounds=20&round_delay_seconds=2.0`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ n_rounds: 20, round_delay_seconds: 2.0 }),
       });
+      if (!response.ok) throw new Error(`Simulation start failed: ${response.status}`);
     } catch (err) {
       console.error("Start error:", err);
       setIsRunning(false);
+      setSimulationState("error");
       setApiError(true);
     }
   };
@@ -160,6 +166,7 @@ export default function App() {
   const verifiedBlocks = status?.chain_integrity?.verified_blocks ?? currentRound;
   const online = status?.institutions_online ?? Object.keys(institutions).length ?? 4;
   const accuracy = status?.global_accuracy;
+  const hasResults = simulationState !== "idle" && simulationState !== "error" && currentRound > 0;
 
   const clusterGraphNodes = useMemo(() => {
     const count = heroCluster?.wallet_count || 14;
@@ -238,22 +245,22 @@ export default function App() {
         <div className="cw-round-strip">
           <div className="cw-round-copy"><span className="cw-eyebrow">Federated learning cycle</span><strong>Round {currentRound} of {totalRounds}</strong></div>
           <ProgressBar value={(currentRound / totalRounds) * 100} />
-          <div className="cw-round-state"><span className={`cw-status-dot ${isRunning ? "working" : "ready"}`} />{isRunning ? "Processing secure updates" : currentRound >= totalRounds ? "Cycle complete" : "Ready to begin"}</div>
+          <div className="cw-round-state"><span className={`cw-status-dot ${isRunning ? "working" : "ready"}`} />{isRunning ? "Processing secure updates" : simulationState === "completed" ? "Cycle complete" : simulationState === "error" ? "Run failed" : "No simulation started"}</div>
         </div>
 
         {apiError && <div className="cw-alert"><AlertTriangle size={17} /><span><strong>Unable to reach the dashboard API.</strong> Live values will resume when the backend is available.</span><button onClick={fetchDashboardData}>Retry</button></div>}
 
         <section className="cw-metrics" aria-label="Key metrics">
-          <MetricCard label="Global accuracy" value={accuracy == null ? "—" : `${(accuracy * 100).toFixed(1)}%`} detail={`${accuracy == null ? "Awaiting evaluation" : `${((status?.accuracy_delta || 0) * 100).toFixed(2)}% vs prior round`}`} icon={BarChart3} />
+          <MetricCard label="Global accuracy" value={!hasResults || accuracy == null ? "—" : `${(accuracy * 100).toFixed(1)}%`} detail={!hasResults || accuracy == null ? "Awaiting simulation" : `${((status?.accuracy_delta || 0) * 100).toFixed(2)}% vs prior round`} icon={BarChart3} />
           <MetricCard label="Active nodes" value={`${online} / ${status?.institutions_total ?? 4}`} detail="Secure participants" icon={Users} tone="green" />
-          <MetricCard label="Scam clusters" value={status?.clusters_flagged ?? "—"} detail="Resolved entities" icon={Network} />
-          <MetricCard label="Chain integrity" value={`${verifiedBlocks} / ${totalRounds}`} detail="SHA-256 blocks verified" icon={CheckCircle2} tone="green" />
+          <MetricCard label="Scam clusters" value={!hasResults ? "—" : status?.clusters_flagged ?? "—"} detail={!hasResults ? "Awaiting simulation" : "Resolved entities"} icon={Network} />
+          <MetricCard label="Chain integrity" value={`${hasResults ? verifiedBlocks : 0} / ${totalRounds}`} detail="SHA-256 blocks verified" icon={CheckCircle2} tone="green" />
         </section>
 
         <div className="cw-grid cw-grid-top">
           <Panel id="federated-learning" title="Global model accuracy" eyebrow="Held-out evaluation · 3,000 samples" action={<Badge tone="blue" dot>{isRunning ? "Live" : "Monitoring"}</Badge>}>
             <div className="cw-chart-wrap">
-              {chartData.length > 0 ? <ResponsiveContainer width="100%" height="100%">
+              {hasResults && chartData.length > 0 ? <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -24, bottom: 0 }}>
                   <defs><linearGradient id="accuracyFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#6d91b9" stopOpacity={0.22} /><stop offset="100%" stopColor="#6d91b9" stopOpacity={0.02} /></linearGradient></defs>
                   <CartesianGrid stroke="#edf0f3" vertical={false} />
@@ -263,7 +270,7 @@ export default function App() {
                   <ReferenceLine y={90} stroke="#cbd3dc" strokeDasharray="4 4" label={{ value: "Target 90%", fill: "#8b95a3", fontSize: 10, position: "insideTopRight" }} />
                   <Area type="monotone" dataKey="accuracy" stroke="#5078a8" fill="url(#accuracyFill)" strokeWidth={2} dot={{ r: 3, fill: "#5078a8", strokeWidth: 0 }} />
                 </AreaChart>
-              </ResponsiveContainer> : <div className="cw-empty"><BarChart3 size={22} /><span>Start a federated run to view model performance.</span></div>}
+              </ResponsiveContainer> : <div className="cw-empty"><BarChart3 size={22} /><span>AWAITING SIMULATION DATA</span></div>}
             </div>
           </Panel>
           <Panel title="Institution federation status" eyebrow="Secure weight aggregation participants">
@@ -277,21 +284,22 @@ export default function App() {
 
         <Panel id="threat-intelligence" title="Syndicate risk analysis" eyebrow="Local model view compared with the unified federated model" action={<Badge tone={isGlobalHighRisk ? "red" : "amber"} dot>{isGlobalHighRisk ? "High risk detected" : "Awaiting signal"}</Badge>}>
           <div className="cw-risk-grid">
-            <div className="cw-risk-intro"><div className="cw-cluster-avatar"><Network size={23} /></div><div><strong>Cluster 0x7a2...f1</strong><p>{heroCluster?.wallet_count || 14} connected wallets identified across participating institutions.</p></div></div>
-            <div className="cw-risk-stage"><span>01</span><div><small>Raw transaction fragments</small><strong>Distributed activity</strong><p>Signals remain isolated within local datasets.</p></div><ChevronRight size={17} /></div>
-            <div className="cw-risk-stage"><span>02</span><div><small>Node A local evaluation</small><strong>{heroCluster?.local_label || "Low risk"} <em>{heroCluster?.local_score == null ? "0.40" : heroCluster.local_score.toFixed(2)}</em></strong><ProgressBar value={(heroCluster?.local_score || 0.4) * 100} tone="green" /></div><Badge tone="green">Blinded</Badge></div>
-            <div className={`cw-risk-stage ${isGlobalHighRisk ? "threat" : ""}`}><span>03</span><div><small>Global federated assessment</small><strong>{heroCluster?.global_label || "Awaiting"} <em>{heroCluster?.global_score == null ? "0.00" : heroCluster.global_score.toFixed(2)}</em></strong><ProgressBar value={globalScore * 100} tone={isGlobalHighRisk ? "red" : "amber"} /></div><Badge tone={isGlobalHighRisk ? "red" : "amber"}>{isGlobalHighRisk ? "Detected" : "Aggregating"}</Badge></div>
+            <div className="cw-risk-intro"><div className="cw-cluster-avatar"><Network size={23} /></div><div><strong>{hasResults ? `Cluster ${heroCluster?.id || "0x7a2...f1"}` : "Awaiting simulation"}</strong><p>{hasResults ? `${heroCluster?.wallet_count || "—"} connected wallets identified across participating institutions.` : "Threat clusters will appear after a federated run begins."}</p></div></div>
+            <div className="cw-risk-stage"><span>01</span><div><small>Raw transaction fragments</small><strong>{hasResults ? "Distributed activity" : "Awaiting simulation"}</strong><p>Signals remain isolated within local datasets.</p></div><ChevronRight size={17} /></div>
+            <div className="cw-risk-stage"><span>02</span><div><small>Node A local evaluation</small><strong>{hasResults ? heroCluster?.local_label : "Awaiting simulation"} {hasResults && <em>{heroCluster?.local_score?.toFixed(2)}</em>}</strong>{hasResults && <ProgressBar value={(heroCluster?.local_score || 0) * 100} tone="green" />}</div>{hasResults && <Badge tone="green">Blinded</Badge>}</div>
+            <div className={`cw-risk-stage ${isGlobalHighRisk ? "threat" : ""}`}><span>03</span><div><small>Global federated assessment</small><strong>{hasResults ? heroCluster?.global_label : "Awaiting simulation"} {hasResults && <em>{heroCluster?.global_score?.toFixed(2)}</em>}</strong>{hasResults && <ProgressBar value={globalScore * 100} tone={isGlobalHighRisk ? "red" : "amber"} />}</div><Badge tone={hasResults && isGlobalHighRisk ? "red" : "amber"}>{hasResults ? (isGlobalHighRisk ? "Detected" : "Aggregating") : "Awaiting"}</Badge></div>
           </div>
         </Panel>
 
         <div className="cw-grid cw-grid-bottom">
           <Panel id="network-graph" title="Suspicious entity network" eyebrow={`Cross-bank co-occurrence · ${clusterEdges.length} detected connections`} action={<div className="cw-legend"><span><i className="legend-red" />High risk</span><span><i className="legend-blue" />Observed</span></div>}>
-            <div className="cw-network">
+            <div className={`cw-network ${!hasResults ? "cw-network-preview" : ""}`}>
               <svg viewBox="0 0 460 220" role="img" aria-label="Wallet relationship network">
                 {clusterEdges.map((e, idx) => <line key={idx} x1={e.from.x} y1={e.from.y} x2={e.to.x} y2={e.to.y} stroke={e.from.isFlagged && e.to.isFlagged ? "#b45757" : "#9fb4ca"} strokeWidth={e.from.isFlagged && e.to.isFlagged ? 1.7 : 1} strokeDasharray={e.from.isFlagged && e.to.isFlagged ? "none" : "4 4"} opacity={e.from.isFlagged && e.to.isFlagged ? 0.75 : 0.45} />)}
                 {clusterGraphNodes.map((n) => { const selected = selectedWallet?.id === n.id; const color = n.isFlagged ? "#b45757" : "#6d91b9"; return <g key={n.id} className="cw-node" onClick={() => setSelectedWallet(n)}><circle cx={n.x} cy={n.y} r={selected ? 9 : 6} fill="#fff" stroke={selected ? "#a9792e" : color} strokeWidth={selected ? 3 : 2} /><text x={n.x} y={n.y + 16} textAnchor="middle" fill={selected ? "#a9792e" : "#7e8996"} fontSize="8" fontFamily="inherit">{n.label}</text></g>; })}
               </svg>
-              {selectedWallet && <div className="cw-wallet-card"><div className="cw-wallet-head"><div><small>Selected entity</small><strong>{selectedWallet.id}</strong></div><button onClick={copyWallet} title="Copy entity ID"><Clipboard size={14} /></button></div><div className="cw-wallet-stats"><span><small>Volume</small><strong>{selectedWallet.amount}</strong></span><span><small>Hops</small><strong>{selectedWallet.hops} inter-bank</strong></span></div><Badge tone={selectedWallet.isFlagged ? "red" : "blue"}>{selectedWallet.isFlagged ? "High-risk entity" : "Observed entity"}</Badge>{copied && <span className="cw-copied">Copied</span>}</div>}
+              {!hasResults && <div className="cw-network-label">NETWORK TOPOLOGY — AWAITING SIMULATION</div>}
+              {hasResults && selectedWallet && <div className="cw-wallet-card"><div className="cw-wallet-head"><div><small>Selected entity</small><strong>{selectedWallet.id}</strong></div><button onClick={copyWallet} title="Copy entity ID"><Clipboard size={14} /></button></div><div className="cw-wallet-stats"><span><small>Volume</small><strong>{selectedWallet.amount}</strong></span><span><small>Hops</small><strong>{selectedWallet.hops} inter-bank</strong></span></div><Badge tone={selectedWallet.isFlagged ? "red" : "blue"}>{selectedWallet.isFlagged ? "High-risk entity" : "Observed entity"}</Badge>{copied && <span className="cw-copied">Copied</span>}</div>}
             </div>
           </Panel>
           <Panel title="Federated learning flow" eyebrow="Privacy-preserving model collaboration">
