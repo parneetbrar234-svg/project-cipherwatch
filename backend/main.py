@@ -4,6 +4,7 @@ FastAPI backend for the Federated Threat Intelligence Console dashboard.
 
 import asyncio
 import random
+import uuid
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -19,19 +20,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-INSTITUTION_LABELS = {
-    1: "EXCHANGE (Alpha)",
-    2: "FORENSIC FIRM (ChainScan)",
-    3: "BANK (Global Trust)",
-    4: "BANK / SETTLEMENT (Nexus)",
-}
-
 
 class DashboardState:
     def __init__(self):
         self.reset()
 
-    def reset(self):
+    def reset(self, run_id=None):
+        self.run_id = run_id
+        self.simulation_state = "idle"
         self.round = 0
         self.total_rounds = 20
         self.global_accuracy = None
@@ -46,14 +42,7 @@ class DashboardState:
             "NODE_C": {"label": "BANK (Global Trust)", "status": "SYNCED"},
             "NODE_D": {"label": "BANK / SETTLEMENT (Nexus)", "status": "SYNCED"},
         }
-        self.hero_cluster = {
-            "id": "CLUSTER_HERO_0X7A2",
-            "wallet_count": 14,
-            "local_score": 0.40,
-            "local_label": "LOW-RISK",
-            "global_score": 0.00,
-            "global_label": "AWAITING",
-        }
+        self.hero_cluster = None
         self.accuracy_history = []
         self.audit_log = []
         self.is_running = False
@@ -63,34 +52,32 @@ STATE = DashboardState()
 _current_task = None
 
 
-async def run_simulation_worker(n_rounds: int = 20, round_delay: float = 2.0):
+async def run_simulation_worker(run_id: str, n_rounds: int = 20, round_delay: float = 2.0):
     STATE.is_running = True
+    STATE.simulation_state = "running"
     chain = HashChain()
-    current_acc = 0.528
+    # A new RNG is seeded from system entropy for each independent experiment.
+    run_rng = random.Random()
+    current_acc = round(run_rng.uniform(0.505, 0.545), 4)
 
     try:
         for r in range(1, n_rounds + 1):
             await asyncio.sleep(round_delay)
 
-            # 1. Realistic Differential Privacy Accuracy with variance
-            dp_noise = random.uniform(-0.012, 0.018) if r > 3 else random.uniform(0.015, 0.035)
+            dp_noise = run_rng.uniform(-0.012, 0.018) if r > 3 else run_rng.uniform(0.015, 0.035)
             step_gain = (0.024 / (1.0 + r * 0.06)) + dp_noise
             new_acc = max(0.50, min(0.968, current_acc + step_gain))
             delta = round(new_acc - current_acc, 4)
             current_acc = round(new_acc, 4)
+            clusters_flagged = int(54 + (r * 9) + int(current_acc * 32) + run_rng.randint(-2, 3))
 
-            # 2. Clusters Flagged in the 100s–200s range
-            clusters_flagged = int(54 + (r * 9) + int(current_acc * 32) + random.randint(-2, 3))
-
-            # 3. Hero Cluster Progressive Global Discovery
             local_hero = 0.40
             if r < 4:
-                global_hero = round(0.38 + random.uniform(-0.03, 0.04), 2)
+                global_hero = round(0.38 + run_rng.uniform(-0.03, 0.04), 2)
             else:
-                target_score = min(0.96, 0.42 + ((r - 3) * 0.038) + random.uniform(-0.02, 0.02))
+                target_score = min(0.96, 0.42 + ((r - 3) * 0.038) + run_rng.uniform(-0.02, 0.02))
                 global_hero = round(target_score, 2)
 
-            # 4. Node D blinks SYNCING every 3 rounds
             inst_status = {
                 "NODE_A": {"label": "EXCHANGE (Alpha)", "status": "SYNCED"},
                 "NODE_B": {"label": "FORENSIC FIRM (ChainScan)", "status": "SYNCED"},
@@ -103,13 +90,9 @@ async def run_simulation_worker(n_rounds: int = 20, round_delay: float = 2.0):
 
             block = chain.append(
                 r,
-                {
-                    "global_accuracy": current_acc,
-                    "clusters_flagged": clusters_flagged,
-                },
+                {"global_accuracy": current_acc, "clusters_flagged": clusters_flagged},
             )
 
-            # 5. Push telemetry
             STATE.round = r
             STATE.accuracy_delta = delta
             STATE.global_accuracy = current_acc
@@ -117,7 +100,6 @@ async def run_simulation_worker(n_rounds: int = 20, round_delay: float = 2.0):
             STATE.institutions = inst_status
             STATE.clusters_flagged = clusters_flagged
             STATE.chain_integrity = {"verified_blocks": r, "total_blocks": n_rounds}
-
             STATE.hero_cluster = {
                 "id": "CLUSTER_HERO_0X7A2",
                 "wallet_count": 14,
@@ -126,40 +108,48 @@ async def run_simulation_worker(n_rounds: int = 20, round_delay: float = 2.0):
                 "global_score": global_hero,
                 "global_label": "HIGH-RISK" if global_hero >= 0.50 else "AWAITING",
             }
-
             STATE.audit_log.insert(
                 0,
                 {
+                    "run_id": run_id,
                     "block": f"#{block.index:04d}",
                     "round": block.round,
                     "hash": block.hash[:16] + "…",
                     "status": "VERIFIED",
                 },
             )
-
     except asyncio.CancelledError:
         pass
+    except Exception:
+        STATE.simulation_state = "error"
+        raise
     finally:
         STATE.is_running = False
+        if STATE.simulation_state == "running":
+            STATE.simulation_state = "completed"
 
 
 @app.post("/api/demo/start")
 async def start_demo(n_rounds: int = 20, round_delay_seconds: float = 2.0):
     global _current_task
-
     if _current_task and not _current_task.done():
         _current_task.cancel()
 
-    STATE.reset()
+    run_id = f"run-{uuid.uuid4().hex[:10]}"
+    STATE.reset(run_id=run_id)
+    STATE.total_rounds = n_rounds
+    STATE.chain_integrity = {"verified_blocks": 0, "total_blocks": n_rounds}
     _current_task = asyncio.create_task(
-        run_simulation_worker(n_rounds=n_rounds, round_delay=round_delay_seconds)
+        run_simulation_worker(run_id, n_rounds=n_rounds, round_delay=round_delay_seconds)
     )
-    return {"started": True, "live": True}
+    return {"started": True, "live": True, "run_id": run_id}
 
 
 @app.get("/api/status")
 async def get_status():
     return {
+        "run_id": STATE.run_id,
+        "simulation_state": STATE.simulation_state,
         "global_accuracy": STATE.global_accuracy,
         "accuracy_delta": STATE.accuracy_delta,
         "institutions_online": STATE.institutions_online,
@@ -171,9 +161,11 @@ async def get_status():
         "live": STATE.is_running,
     }
 
+
 @app.get("/api/accuracy-history")
 async def get_accuracy_history():
     return {
+        "run_id": STATE.run_id,
         "rounds": list(range(1, len(STATE.accuracy_history) + 1)),
         "accuracy": STATE.accuracy_history,
     }
