@@ -72,7 +72,7 @@ button:focus-visible { outline: 3px solid rgba(80, 120, 168, .3); outline-offset
 .cw-status-dot.ready { background: #aab4bf; }
 .cw-alert { display: flex; align-items: center; gap: 9px; margin-bottom: 20px; padding: 11px 14px; color: #805e25; background: var(--cw-amber-soft); border: 1px solid #ebd9b1; border-radius: 8px; font-size: 12px; }
 .cw-alert button { margin-left: auto; color: #805e25; border: 1px solid #d5bc88; background: transparent; border-radius: 5px; padding: 4px 9px; cursor: pointer; }
-.cw-metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 11px; margin-bottom: 17px; }
+.cw-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 11px; margin-bottom: 17px; }
 .cw-metric { min-width: 0; padding: 15px; border: 1px solid var(--cw-border); border-radius: 9px; background: #fff; }
 .cw-metric-top { display: flex; justify-content: space-between; align-items: center; color: var(--cw-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .035em; }
 .cw-metric-icon { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 6px; background: var(--cw-blue-soft); }
@@ -144,7 +144,6 @@ button:focus-visible { outline: 3px solid rgba(80, 120, 168, .3); outline-offset
 .cw-wallet-head strong { margin-top: 3px; color: #475569; font-family: ui-monospace, monospace; font-size: 11px; }
 .cw-wallet-head button { padding: 3px; color: #7d8792; border: 0; background: transparent; cursor: pointer; }
 .cw-wallet-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 13px 0; }
-.cw-wallet-stats span:last-child { grid-column: span 2; }
 .cw-wallet-stats small, .cw-wallet-stats strong { display: block; }
 .cw-wallet-stats small { color: #9aa4b0; font-size: 9px; }
 .cw-wallet-stats strong { margin-top: 2px; color: #4b5869; font-size: 11px; font-weight: 600; }
@@ -173,7 +172,7 @@ button:focus-visible { outline: 3px solid rgba(80, 120, 168, .3); outline-offset
 @media (max-width: 1180px) {
   .cw-sidebar { width: 215px; }
   .cw-main { padding: 27px 24px; }
-  .cw-metrics { grid-template-columns: repeat(3, 1fr); }
+  .cw-metrics { grid-template-columns: repeat(2, 1fr); }
   .cw-risk-grid { grid-template-columns: repeat(2, 1fr); }
   .cw-risk-intro { grid-column: span 2; }
 }
