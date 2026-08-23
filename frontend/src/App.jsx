@@ -16,7 +16,6 @@ import {
   Play,
   RefreshCw,
   ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -36,20 +35,20 @@ import {
 const API_BASE = "https://project-cipherwatch-production.up.railway.app/api";
 
 const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, active: true },
-  { label: "Threat intelligence", icon: ShieldCheck },
-  { label: "Network graph", icon: Network },
-  { label: "Federated learning", icon: GitBranch },
-  { label: "Audit ledger", icon: FileCheck2 },
+  { label: "Dashboard", icon: LayoutDashboard, target: "dashboard" },
+  { label: "Threat intelligence", icon: ShieldCheck, target: "threat-intelligence" },
+  { label: "Network graph", icon: Network, target: "network-graph" },
+  { label: "Federated learning", icon: GitBranch, target: "federated-learning" },
+  { label: "Audit ledger", icon: FileCheck2, target: "audit-ledger" },
 ];
 
 function Badge({ children, tone = "neutral", dot = false }) {
   return <span className={`cw-badge cw-badge-${tone}`}>{dot && <span className="cw-badge-dot" />}{children}</span>;
 }
 
-function Panel({ title, eyebrow, action, children, className = "" }) {
+function Panel({ title, eyebrow, action, children, className = "", id }) {
   return (
-    <section className={`cw-panel ${className}`}>
+    <section id={id} className={`cw-panel ${className}`}>
       <div className="cw-panel-header">
         <div>
           {eyebrow && <div className="cw-eyebrow">{eyebrow}</div>}
@@ -199,6 +198,10 @@ export default function App() {
     setTimeout(() => setCopied(false), 1200);
   };
 
+  const scrollToSection = (target) => {
+    document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <div className="cw-app">
       <aside className="cw-sidebar">
@@ -208,16 +211,15 @@ export default function App() {
         </div>
         <div className="cw-side-label">Workspace</div>
         <nav>{navItems.map(({ label, icon: Icon, active }) => (
-          <button key={label} className={`cw-nav-item ${active ? "active" : ""}`}><Icon size={17} />{label}</button>
+          <button key={label} className={`cw-nav-item ${label === "Dashboard" ? "active" : ""}`} onClick={() => scrollToSection(target)}><Icon size={17} />{label}</button>
         ))}</nav>
         <div className="cw-sidebar-bottom">
           <div className="cw-side-label">Environment</div>
           <div className="cw-env"><span className="cw-live-dot" /><div><strong>Production</strong><small>API connected</small></div></div>
-          <button className="cw-nav-item"><SlidersHorizontal size={17} />Settings</button>
         </div>
       </aside>
 
-      <main className="cw-main">
+      <main id="dashboard" className="cw-main">
         <header className="cw-header">
           <div>
             <div className="cw-breadcrumb">Workspace <ChevronRight size={13} /> Intelligence console</div>
@@ -241,17 +243,15 @@ export default function App() {
 
         {apiError && <div className="cw-alert"><AlertTriangle size={17} /><span><strong>Unable to reach the dashboard API.</strong> Live values will resume when the backend is available.</span><button onClick={fetchDashboardData}>Retry</button></div>}
 
-        <section className="cw-metrics">
+        <section className="cw-metrics" aria-label="Key metrics">
           <MetricCard label="Global accuracy" value={accuracy == null ? "—" : `${(accuracy * 100).toFixed(1)}%`} detail={`${accuracy == null ? "Awaiting evaluation" : `${((status?.accuracy_delta || 0) * 100).toFixed(2)}% vs prior round`}`} icon={BarChart3} />
-          <MetricCard label="Threats detected" value={status?.clusters_flagged ?? "—"} detail="Cross-institution signals" icon={AlertTriangle} tone="red" />
           <MetricCard label="Active nodes" value={`${online} / ${status?.institutions_total ?? 4}`} detail="Secure participants" icon={Users} tone="green" />
-          <MetricCard label="Privacy budget" value="ε-on" detail="Differential privacy enabled" icon={LockKeyhole} tone="amber" />
           <MetricCard label="Scam clusters" value={status?.clusters_flagged ?? "—"} detail="Resolved entities" icon={Network} />
           <MetricCard label="Chain integrity" value={`${verifiedBlocks} / ${totalRounds}`} detail="SHA-256 blocks verified" icon={CheckCircle2} tone="green" />
         </section>
 
         <div className="cw-grid cw-grid-top">
-          <Panel title="Global model accuracy" eyebrow="Held-out evaluation · 3,000 samples" action={<Badge tone="blue" dot>{isRunning ? "Live" : "Monitoring"}</Badge>}>
+          <Panel id="federated-learning" title="Global model accuracy" eyebrow="Held-out evaluation · 3,000 samples" action={<Badge tone="blue" dot>{isRunning ? "Live" : "Monitoring"}</Badge>}>
             <div className="cw-chart-wrap">
               {chartData.length > 0 ? <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -24, bottom: 0 }}>
@@ -275,7 +275,7 @@ export default function App() {
           </Panel>
         </div>
 
-        <Panel title="Syndicate risk analysis" eyebrow="Local model view compared with the unified federated model" action={<Badge tone={isGlobalHighRisk ? "red" : "amber"} dot>{isGlobalHighRisk ? "High risk detected" : "Awaiting signal"}</Badge>}>
+        <Panel id="threat-intelligence" title="Syndicate risk analysis" eyebrow="Local model view compared with the unified federated model" action={<Badge tone={isGlobalHighRisk ? "red" : "amber"} dot>{isGlobalHighRisk ? "High risk detected" : "Awaiting signal"}</Badge>}>
           <div className="cw-risk-grid">
             <div className="cw-risk-intro"><div className="cw-cluster-avatar"><Network size={23} /></div><div><strong>Cluster 0x7a2...f1</strong><p>{heroCluster?.wallet_count || 14} connected wallets identified across participating institutions.</p></div></div>
             <div className="cw-risk-stage"><span>01</span><div><small>Raw transaction fragments</small><strong>Distributed activity</strong><p>Signals remain isolated within local datasets.</p></div><ChevronRight size={17} /></div>
@@ -285,13 +285,13 @@ export default function App() {
         </Panel>
 
         <div className="cw-grid cw-grid-bottom">
-          <Panel title="Suspicious entity network" eyebrow={`Cross-bank co-occurrence · ${clusterEdges.length} detected connections`} action={<div className="cw-legend"><span><i className="legend-red" />High risk</span><span><i className="legend-blue" />Observed</span></div>}>
+          <Panel id="network-graph" title="Suspicious entity network" eyebrow={`Cross-bank co-occurrence · ${clusterEdges.length} detected connections`} action={<div className="cw-legend"><span><i className="legend-red" />High risk</span><span><i className="legend-blue" />Observed</span></div>}>
             <div className="cw-network">
               <svg viewBox="0 0 460 220" role="img" aria-label="Wallet relationship network">
                 {clusterEdges.map((e, idx) => <line key={idx} x1={e.from.x} y1={e.from.y} x2={e.to.x} y2={e.to.y} stroke={e.from.isFlagged && e.to.isFlagged ? "#b45757" : "#9fb4ca"} strokeWidth={e.from.isFlagged && e.to.isFlagged ? 1.7 : 1} strokeDasharray={e.from.isFlagged && e.to.isFlagged ? "none" : "4 4"} opacity={e.from.isFlagged && e.to.isFlagged ? 0.75 : 0.45} />)}
                 {clusterGraphNodes.map((n) => { const selected = selectedWallet?.id === n.id; const color = n.isFlagged ? "#b45757" : "#6d91b9"; return <g key={n.id} className="cw-node" onClick={() => setSelectedWallet(n)}><circle cx={n.x} cy={n.y} r={selected ? 9 : 6} fill="#fff" stroke={selected ? "#a9792e" : color} strokeWidth={selected ? 3 : 2} /><text x={n.x} y={n.y + 16} textAnchor="middle" fill={selected ? "#a9792e" : "#7e8996"} fontSize="8" fontFamily="inherit">{n.label}</text></g>; })}
               </svg>
-              {selectedWallet && <div className="cw-wallet-card"><div className="cw-wallet-head"><div><small>Selected entity</small><strong>{selectedWallet.id}</strong></div><button onClick={copyWallet} title="Copy entity ID"><Clipboard size={14} /></button></div><div className="cw-wallet-stats"><span><small>Risk score</small><strong>{selectedWallet.isFlagged ? "0.82" : "0.34"}</strong></span><span><small>Volume</small><strong>{selectedWallet.amount}</strong></span><span><small>Hops</small><strong>{selectedWallet.hops} inter-bank</strong></span></div><Badge tone={selectedWallet.isFlagged ? "red" : "blue"}>{selectedWallet.isFlagged ? "High-risk entity" : "Observed entity"}</Badge>{copied && <span className="cw-copied">Copied</span>}</div>}
+              {selectedWallet && <div className="cw-wallet-card"><div className="cw-wallet-head"><div><small>Selected entity</small><strong>{selectedWallet.id}</strong></div><button onClick={copyWallet} title="Copy entity ID"><Clipboard size={14} /></button></div><div className="cw-wallet-stats"><span><small>Volume</small><strong>{selectedWallet.amount}</strong></span><span><small>Hops</small><strong>{selectedWallet.hops} inter-bank</strong></span></div><Badge tone={selectedWallet.isFlagged ? "red" : "blue"}>{selectedWallet.isFlagged ? "High-risk entity" : "Observed entity"}</Badge>{copied && <span className="cw-copied">Copied</span>}</div>}
             </div>
           </Panel>
           <Panel title="Federated learning flow" eyebrow="Privacy-preserving model collaboration">
@@ -300,7 +300,7 @@ export default function App() {
           </Panel>
         </div>
 
-        <Panel title="Cryptographic audit ledger" eyebrow="Tamper-evident SHA-256 verification chain" action={<Badge tone="green" dot>{verifiedBlocks}/{totalRounds} verified</Badge>}>
+        <Panel id="audit-ledger" title="Cryptographic audit ledger" eyebrow="Tamper-evident SHA-256 verification chain" action={<Badge tone="green" dot>{verifiedBlocks}/{totalRounds} verified</Badge>}>
           <div className="cw-table-wrap cw-scrollbar"><table className="cw-table"><thead><tr><th>Block</th><th>Round</th><th>Accuracy</th><th>Clusters</th><th>Hash</th><th>Verification</th></tr></thead><tbody>{auditLog.length ? auditLog.map((row, idx) => <tr key={idx}><td><strong>#{row.block}</strong></td><td>Round {row.round}</td><td>{row.accuracy ? `${(row.accuracy * 100).toFixed(1)}%` : "—"}</td><td>{row.cluster_count ?? "—"}</td><td className="cw-hash">{row.hash}</td><td><Badge tone="green" dot>{row.status || "VERIFIED"}</Badge></td></tr>) : <tr><td colSpan="6"><div className="cw-empty table-empty"><FileCheck2 size={20} /><span>No blocks committed yet. Start a simulation to create the audit trail.</span></div></td></tr>}</tbody></table></div>
         </Panel>
 
